@@ -71,15 +71,16 @@ func newConn(c *websocket.Conn, v *Values) (*Conn, error) {
 	return nil, syscall.EINVAL
 }
 
-func (this *Conn) Close() {
+func (this *Conn) Close() error {
 	if atomic.CompareAndSwapUint32(&this.flags[WebsocketFlagClosed], 0x0, 0x1) {
-		// 关闭
-		this.Conn.Close()
 		// 回调
 		for _, fn := range this.closelist {
 			fn(this.id)
 		}
+		// 关闭
+		return this.Conn.Close()
 	}
+	return nil
 }
 
 func (this *Conn) ID() string {
@@ -112,6 +113,14 @@ func (this *Conn) AddCloseHandler(fn func(string)) {
 	if nil != fn {
 		this.closelist = append(this.closelist, fn)
 	}
+}
+
+func (this *Conn) Read(data []byte) (int, error) {
+	return this.UnderlyingConn().Read(data)
+}
+
+func (this *Conn) Write(data []byte) (int, error) {
+	return this.UnderlyingConn().Write(data)
 }
 
 func (this *Conn) WriteMessage(messageType int, data []byte) error {
