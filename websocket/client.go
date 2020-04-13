@@ -77,6 +77,13 @@ func (this *Client) Dial(urlStr string) (*Conn, error) {
 	return nil, errReturn
 }
 
+func (this *Client) Len() int {
+	this.RLock()
+	defer this.RUnlock()
+
+	return len(this.list)
+}
+
 func (this *Client) Lists() []string {
 	var list []string
 
