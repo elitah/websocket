@@ -3,6 +3,7 @@ package websocket
 import (
 	"bytes"
 	"encoding/json"
+	"net"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -15,8 +16,19 @@ import (
 
 const (
 	WebsocketFlagClosed = iota
+	WebsocketFlagIdle
 
 	WebsocketFlagMax
+)
+
+const (
+	FlagRunning = iota
+	FlagClosed
+
+	FlagFrozen
+	FlagActive
+
+	FlagMax
 )
 
 type Conn struct {
@@ -29,6 +41,10 @@ type Conn struct {
 	flags [WebsocketFlagMax]uint32
 
 	id string
+
+	raw net.Conn
+
+	rawCommCnt uint64
 
 	enc *JsonEncoder
 
@@ -54,12 +70,17 @@ func newConn(c *websocket.Conn, v *Values) (*Conn, error) {
 
 				id: uuid,
 
+				raw: c.UnderlyingConn(),
+
 				enc: NewJsonEncoder(),
 
 				writeWait: 10 * time.Second,
 
 				pingPeriod: 10 * time.Second,
 			}
+
+			atomic.StoreUint32(&conn.flags[WebsocketFlagClosed], FlagRunning)
+			atomic.StoreUint32(&conn.flags[WebsocketFlagIdle], FlagFrozen)
 
 			conn.pongWait = conn.pingPeriod*3 + time.Second
 
@@ -72,7 +93,7 @@ func newConn(c *websocket.Conn, v *Values) (*Conn, error) {
 }
 
 func (this *Conn) Close() error {
-	if atomic.CompareAndSwapUint32(&this.flags[WebsocketFlagClosed], 0x0, 0x1) {
+	if atomic.CompareAndSwapUint32(&this.flags[WebsocketFlagClosed], FlagRunning, FlagClosed) {
 		// 回调
 		for _, fn := range this.closelist {
 			fn(this.id)
@@ -85,6 +106,47 @@ func (this *Conn) Close() error {
 
 func (this *Conn) ID() string {
 	return this.id
+}
+
+func (this *Conn) StartIdlaCheck(timeout time.Duration, fns ...func(uint64, uint64)) {
+	if FlagRunning == atomic.LoadUint32(&this.flags[WebsocketFlagClosed]) {
+		if atomic.CompareAndSwapUint32(&this.flags[WebsocketFlagIdle], FlagFrozen, FlagActive) {
+			CoroutineGo(func() {
+				var now uint64
+				//
+				if time.Second > timeout {
+					timeout = time.Second
+				}
+				//
+				ticker := time.NewTicker(timeout)
+				//
+				defer ticker.Stop()
+				//
+				before := atomic.LoadUint64(&this.rawCommCnt)
+				//
+				for FlagRunning == atomic.LoadUint32(&this.flags[WebsocketFlagClosed]) {
+					select {
+					case <-ticker.C:
+						now = atomic.LoadUint64(&this.rawCommCnt)
+						//
+						for _, fn := range fns {
+							fn(before, now)
+						}
+						//
+						if before == now {
+							this.Close()
+							return
+						} else {
+							//
+							before = now
+							//
+							//logs.Info("OK: %d", atomic.LoadUint64(&this.rawCommCnt))
+						}
+					}
+				}
+			})
+		}
+	}
 }
 
 func (this *Conn) SetIsolatorTime(timeout time.Duration) {
@@ -116,15 +178,21 @@ func (this *Conn) AddCloseHandler(fn func(string)) {
 }
 
 func (this *Conn) Read(data []byte) (int, error) {
-	return this.UnderlyingConn().Read(data)
+	// 通信次数+1
+	atomic.AddUint64(&this.rawCommCnt, 1)
+	// 底层通信
+	return this.raw.Read(data)
 }
 
 func (this *Conn) Write(data []byte) (int, error) {
-	return this.UnderlyingConn().Write(data)
+	// 通信次数+1
+	atomic.AddUint64(&this.rawCommCnt, 1)
+	// 底层通信
+	return this.raw.Write(data)
 }
 
 func (this *Conn) WriteMessage(messageType int, data []byte) error {
-	if 0x0 == atomic.LoadUint32(&this.flags[WebsocketFlagClosed]) {
+	if FlagRunning == atomic.LoadUint32(&this.flags[WebsocketFlagClosed]) {
 		// 互斥
 		this.Lock()
 		defer this.Unlock()
@@ -139,7 +207,7 @@ func (this *Conn) WriteMessage(messageType int, data []byte) error {
 
 func (this *Conn) WriteString(msg string) error {
 	if "" != msg {
-		if 0x0 == atomic.LoadUint32(&this.flags[WebsocketFlagClosed]) {
+		if FlagRunning == atomic.LoadUint32(&this.flags[WebsocketFlagClosed]) {
 			return this.WriteMessage(websocket.TextMessage, []byte(msg))
 		} else {
 			return ErrClosed
@@ -151,7 +219,7 @@ func (this *Conn) WriteString(msg string) error {
 
 func (this *Conn) WriteJSON(v interface{}) (int, error) {
 	if nil != v {
-		if 0x0 == atomic.LoadUint32(&this.flags[WebsocketFlagClosed]) {
+		if FlagRunning == atomic.LoadUint32(&this.flags[WebsocketFlagClosed]) {
 			if nil != this.enc {
 				this.enc.Lock()
 				defer this.enc.Unlock()
@@ -180,7 +248,7 @@ func (this *Conn) WriteJSON(v interface{}) (int, error) {
 }
 
 func (this *Conn) HandleConn(fn func(*Conn, string)) {
-	if 0x0 == atomic.LoadUint32(&this.flags[WebsocketFlagClosed]) {
+	if FlagRunning == atomic.LoadUint32(&this.flags[WebsocketFlagClosed]) {
 		// 读缓冲
 		var buf bytes.Buffer
 		// 关闭检查channel
@@ -193,7 +261,7 @@ func (this *Conn) HandleConn(fn func(*Conn, string)) {
 					// 关闭定时器
 					ticker.Stop()
 				}()
-				for 0x0 == atomic.LoadUint32(&this.flags[WebsocketFlagClosed]) {
+				for FlagRunning == atomic.LoadUint32(&this.flags[WebsocketFlagClosed]) {
 					// 定时器
 					<-ticker.C
 					// 检查观察期
@@ -252,7 +320,7 @@ func (this *Conn) HandleConn(fn func(*Conn, string)) {
 			}
 			return nil
 		})
-		for 0x0 == atomic.LoadUint32(&this.flags[WebsocketFlagClosed]) {
+		for FlagRunning == atomic.LoadUint32(&this.flags[WebsocketFlagClosed]) {
 			if mt, r, err := this.NextReader(); nil == err {
 				//if mt, msg, err := this.ReadMessage(); nil == err {
 				if websocket.TextMessage == mt {
