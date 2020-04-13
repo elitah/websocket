@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"crypto/tls"
 	"sync"
 	"time"
 
@@ -51,6 +52,10 @@ func (this *Client) Close() {
 		c.Close()
 		logs.Info("Close done: %s", c.ID())
 	}
+}
+
+func (this *Client) SetTLSConfig(config *tls.Config) {
+	this.dialer.TLSClientConfig = config
 }
 
 func (this *Client) Dial(urlStr string) (*Conn, error) {
