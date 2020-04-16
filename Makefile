@@ -85,4 +85,4 @@ clean:
 .PHONY: distclean
 distclean:
 	@go clean -i -n -x --modcache
-	@rm -rf bin go.sum
+	@rm -rf bin go.sum release
