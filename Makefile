@@ -20,10 +20,10 @@ endif
 all: build
 
 .PHONY: build
-build: server client ws_server ws_client
+build: init fmt server client ws_server ws_client
 
 .PHONY: release
-release: fmt release_server release_client release_ws_server release_ws_client
+release: init fmt release_server release_client release_ws_server release_ws_client
 
 .PHONY: release_build
 release_build:
