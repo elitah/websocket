@@ -33,10 +33,26 @@ func handshake(conn *smux.Stream) net.Conn {
 			logs.Info(string(buffer[:n]))
 			//
 			if ss := strings.SplitN(string(buffer[:n]), ":", 2); 2 <= len(ss) {
-				if _conn, err := net.DialTimeout(ss[0], ss[1], 5*time.Second); nil == err {
-					return _conn
-				} else {
-					logs.Error(err)
+				//
+				switch ss[0] {
+				case "tcp", "tcp4", "tcp6":
+					if _conn, err := net.DialTimeout(ss[0], ss[1], 5*time.Second); nil == err {
+						return _conn
+					} else {
+						logs.Error(err)
+					}
+				case "udp", "udp4", "udp6":
+					if addr, err := net.ResolveUDPAddr(ss[0], ss[1]); nil == err {
+						if _conn, err := net.DialUDP(ss[0], nil, addr); nil == err {
+							return _conn
+						} else {
+							logs.Error(err)
+						}
+					} else {
+						logs.Error("spilt failed")
+					}
+				default:
+					logs.Warn("unsupport protocol: %s", ss[0])
 				}
 			} else {
 				logs.Error("spilt failed")
