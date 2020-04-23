@@ -2,6 +2,7 @@ package websocket
 
 import (
 	"crypto/tls"
+	"net"
 	"sync"
 	"time"
 
@@ -9,6 +10,42 @@ import (
 
 	"github.com/gorilla/websocket"
 )
+
+type ClientDialer struct {
+	*Client
+
+	handle func(net.Conn, string, string) (net.Conn, error)
+
+	url string
+}
+
+func NewClientDialer(client *Client, url string) *ClientDialer {
+	return &ClientDialer{
+		Client: client,
+		url:    url,
+	}
+}
+
+func (this *ClientDialer) SetHandler(fn func(net.Conn, string, string) (net.Conn, error)) {
+	this.handle = fn
+}
+
+func (this *ClientDialer) SetTimeout(d time.Duration) {
+	this.dialer.HandshakeTimeout = d
+}
+
+func (this *ClientDialer) Dial(network, addr string) (net.Conn, error) {
+	if conn, err := this.Client.Dial(this.url); nil == err {
+		//
+		if nil == this.handle {
+			return conn, nil
+		}
+		//
+		return this.handle(conn, network, addr)
+	} else {
+		return nil, err
+	}
+}
 
 type Client struct {
 	sync.RWMutex
