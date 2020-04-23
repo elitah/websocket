@@ -191,6 +191,10 @@ func (this *Conn) Write(data []byte) (int, error) {
 	return this.raw.Write(data)
 }
 
+func (this *Conn) SetDeadline(t time.Time) error {
+	return this.raw.SetDeadline(t)
+}
+
 func (this *Conn) WriteMessage(messageType int, data []byte) error {
 	if FlagRunning == atomic.LoadUint32(&this.flags[WebsocketFlagClosed]) {
 		// 互斥
