@@ -89,55 +89,63 @@ func (this *Server) AddConnectedHandler(fn func(*Conn) bool) {
 }
 
 func (this *Server) Upgrade(w http.ResponseWriter, r *http.Request, args ...interface{}) {
-	if nil != this.upgrader {
-		if websocket.IsWebSocketUpgrade(r) {
-			v := Values{}
+	//
+	this.UpgradeWithValues(w, r, &Values{}, args...)
+}
+
+func (this *Server) UpgradeWithValues(w http.ResponseWriter, r *http.Request, v *Values, args ...interface{}) {
+	// 判断是否是websocket连接
+	if websocket.IsWebSocketUpgrade(r) {
+		// 检查websocket模块是否开启
+		if nil != this.upgrader {
 			// 检查是否需要授权
-			if nil == this.handlerAuth || 0 == len(args) || this.handlerAuth(&v, args[0]) {
+			if nil == this.handlerAuth || 0 == len(args) || this.handlerAuth(v, args[0]) {
 				// 调用websocket模块初始化连接
-				if conn, err := this.upgrader.Upgrade(w, r, nil); nil == err {
+				if rawconn, err := this.upgrader.Upgrade(w, r, nil); nil == err {
 					// 创建连接对象
-					if _conn, err := newConn(conn, &v); nil == err {
+					if conn, err := newConn(rawconn, v); nil == err {
 						// 加入列表
-						if this.listAdd(_conn.ID(), _conn) {
+						if this.listAdd(conn.ID(), conn) {
 							// 关闭回调
-							_conn.AddCloseHandler(this.listDelete)
+							conn.AddCloseHandler(this.listDelete)
 							// 检查是否启动原始连接模式
 							if nil != this.handlerRawConnection {
-								this.handlerRawConnection(_conn)
+								this.handlerRawConnection(conn)
 							} else {
 								// 检查并调用连接上线通知
-								if nil == this.handlerConnected || this.handlerConnected(_conn) {
+								if nil == this.handlerConnected || this.handlerConnected(conn) {
 									// 同步消息处理
-									_conn.HandleConn(this.handlerMsg)
+									conn.HandleConn(this.handlerMsg)
 								}
 							}
 						}
 						// 关闭
-						_conn.Close()
+						conn.Close()
 					} else {
 						logs.Error(err)
 					}
 					// 关闭
-					conn.Close()
+					rawconn.Close()
+					//
+					return
 				} else {
+					// 错误输出
 					logs.Error(err)
+					// 内部错误
+					w.WriteHeader(http.StatusInternalServerError)
 				}
-				// 返回
-				return
+			} else {
+				// 授权错误
+				w.WriteHeader(http.StatusUnauthorized)
 			}
-			// 授权错误
-			w.WriteHeader(http.StatusUnauthorized)
-			// 返回
-			return
+		} else {
+			// websocket模块未初始化
+			w.WriteHeader(http.StatusServiceUnavailable)
 		}
+	} else {
 		// 不是websocket请求
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		// 返回
-		return
+		w.WriteHeader(http.StatusNotAcceptable)
 	}
-	// websocket模块未初始化
-	w.WriteHeader(http.StatusInternalServerError)
 }
 
 func (this *Server) BroadCastData(data []byte) error {

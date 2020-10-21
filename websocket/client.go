@@ -3,6 +3,7 @@ package websocket
 import (
 	"crypto/tls"
 	"net"
+	"net/http"
 	"sync"
 	"time"
 
@@ -91,13 +92,27 @@ func (this *Client) Close() {
 	}
 }
 
+func (this *Client) SetNetDial(fn func(network, addr string) (net.Conn, error)) {
+	this.dialer.NetDial = fn
+}
+
 func (this *Client) SetTLSConfig(config *tls.Config) {
 	this.dialer.TLSClientConfig = config
 }
 
-func (this *Client) Dial(urlStr string) (*Conn, error) {
+func (this *Client) Dial(urlStr string, args ...interface{}) (*Conn, error) {
 	var errReturn error
-	if conn, _, err := this.dialer.Dial(urlStr, nil); nil == err {
+	//
+	var h http.Header
+	//
+	for _, item := range args {
+		switch result := item.(type) {
+		case http.Header:
+			h = result
+		}
+	}
+	//
+	if conn, _, err := this.dialer.Dial(urlStr, h); nil == err {
 		if _conn, err := newConn(conn, &Values{}); nil == err {
 			if this.listAdd(_conn.ID(), _conn) {
 				_conn.AddCloseHandler(this.listDelete)

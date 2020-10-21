@@ -1,6 +1,8 @@
 package websocket
 
 import (
+	"fmt"
+	"strings"
 	"sync"
 )
 
@@ -100,4 +102,18 @@ func (this *Values) KVGetInt64(key string, def ...int64) int64 {
 	}
 
 	return 0
+}
+
+func (this *Values) String() string {
+	//
+	var b strings.Builder
+	//
+	this.Map.Range(func(key, value interface{}) bool {
+		//
+		fmt.Fprintf(&b, "%v: %v\n", key, value)
+		//
+		return true
+	})
+	//
+	return b.String()
 }

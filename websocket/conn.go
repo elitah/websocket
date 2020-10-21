@@ -151,16 +151,12 @@ func (this *Conn) StartIdlaCheck(timeout time.Duration, fns ...func(uint64, uint
 
 func (this *Conn) SetIsolatorTime(timeout time.Duration) {
 	if time.Second < timeout {
-		// 标志
-		this.KVSet("isolator", true)
 		// 设置观察期
 		this.isolatorTime = time.Now().Add(timeout)
 	}
 }
 
 func (this *Conn) UnSetIsolatorTime() {
-	// 清除标志
-	this.KVUnSet("isolator")
 	// 复位观察期
 	this.isolatorTime = time.Time{}
 }
@@ -342,9 +338,10 @@ func (this *Conn) HandleConn(fn func(*Conn, string)) {
 					logs.Info("%s, ReadMessage(): mt: %d\n", this.id, mt)
 				}
 			} else {
-				if websocket.IsUnexpectedCloseError(err) {
+				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
+					logs.Error("error: %v", err)
 				} else {
-					logs.Error(this.id, ", ReadMessage(): ", err)
+					logs.Error("error: %v", err)
 				}
 				break
 			}
