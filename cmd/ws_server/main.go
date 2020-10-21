@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"net"
@@ -86,12 +87,23 @@ func handleConn(local *smux.Stream) {
 }
 
 func main() {
+	var listen_address string
+
+	flag.StringVar(&listen_address, "l", ":80", "Your listen address")
+
+	flag.Parse()
+
 	logs.SetLogger(logs.AdapterConsole, `{"level":99,"color":true}`)
 	logs.EnableFuncCallDepth(true)
 	logs.SetLogFuncCallDepth(3)
 	logs.Async()
 
 	defer logs.Close()
+
+	if "" == listen_address {
+		flag.Usage()
+		return
+	}
 
 	ws := websocket.NewServer(nil)
 
@@ -129,7 +141,7 @@ func main() {
 	})
 
 	go func() {
-		http.ListenAndServe(":8788", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.ListenAndServe(listen_address, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
 			case "/":
 				fmt.Fprint(w, "hello world")
