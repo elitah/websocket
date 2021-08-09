@@ -56,8 +56,8 @@ type Conn struct {
 
 	isolatorTime time.Time
 
-	ponglist  []func(*Conn)
-	closelist []func(string)
+	ponglist  []interface{}
+	closelist []interface{}
 }
 
 func newConn(c *websocket.Conn, v *Values) (*Conn, error) {
@@ -93,10 +93,19 @@ func newConn(c *websocket.Conn, v *Values) (*Conn, error) {
 }
 
 func (this *Conn) Close() error {
+	//
 	if atomic.CompareAndSwapUint32(&this.flags[WebsocketFlagClosed], FlagRunning, FlagClosed) {
 		// 回调
 		for _, fn := range this.closelist {
-			fn(this.id)
+			//
+			switch _fn := fn.(type) {
+			case func(string):
+				_fn(this.id)
+			case func(*Conn):
+				_fn(this)
+			case func(*Conn, string):
+				_fn(this, this.id)
+			}
 		}
 		// 关闭
 		return this.Conn.Close()
@@ -161,15 +170,35 @@ func (this *Conn) UnSetIsolatorTime() {
 	this.isolatorTime = time.Time{}
 }
 
-func (this *Conn) AddPongHandler(fn func(*Conn)) {
-	if nil != fn {
-		this.ponglist = append(this.ponglist, fn)
+func (this *Conn) AddPongHandler(args ...interface{}) {
+	//
+	for _, item := range args {
+		//
+		switch item.(type) {
+		case func(string):
+		case func(*Conn):
+		case func(*Conn, string):
+		default:
+			continue
+		}
+		//
+		this.ponglist = append(this.ponglist, item)
 	}
 }
 
-func (this *Conn) AddCloseHandler(fn func(string)) {
-	if nil != fn {
-		this.closelist = append(this.closelist, fn)
+func (this *Conn) AddCloseHandler(args ...interface{}) {
+	//
+	for _, item := range args {
+		//
+		switch item.(type) {
+		case func(string):
+		case func(*Conn):
+		case func(*Conn, string):
+		default:
+			continue
+		}
+		//
+		this.closelist = append(this.closelist, item)
 	}
 }
 
@@ -313,11 +342,21 @@ func (this *Conn) HandleConn(fn func(*Conn, string)) {
 		this.SetReadDeadline(time.Now().Add(this.pongWait))
 		// 注册pong回调
 		this.SetPongHandler(func(string) error {
+			//
 			this.SetReadDeadline(time.Now().Add(this.pongWait))
 			// 回调
 			for _, fn := range this.ponglist {
-				fn(this)
+				//
+				switch _fn := fn.(type) {
+				case func(string):
+					_fn(this.id)
+				case func(*Conn):
+					_fn(this)
+				case func(*Conn, string):
+					_fn(this, this.id)
+				}
 			}
+			//
 			return nil
 		})
 		for FlagRunning == atomic.LoadUint32(&this.flags[WebsocketFlagClosed]) {
