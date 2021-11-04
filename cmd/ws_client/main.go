@@ -245,7 +245,7 @@ func startTCPRelay(dial func(*connAsync) (net.Conn, error), listen, target strin
 	//
 	if laddr, err := net.ResolveTCPAddr("tcp4", listen); nil == err {
 		if _, err := net.ResolveTCPAddr("tcp4", target); nil == err {
-			if ls, err := net.ListenTCP("udp4", laddr); nil == err {
+			if ls, err := net.ListenTCP("tcp4", laddr); nil == err {
 				go func() {
 					for {
 						if conn, err := ls.AcceptTCP(); nil == err {
